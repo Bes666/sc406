@@ -706,6 +706,7 @@ ChatCommand * ChatHandler::getCommandTable()
 
     static ChatCommand commandTable[] =
     {
+
         { "account",        SEC_PLAYER,         true,  NULL,                                           "", accountCommandTable  },
         { "achievement",    SEC_ADMINISTRATOR,  false, NULL,                                           "", achievementCommandTable},
         { "gm",             SEC_MODERATOR,      true,  NULL,                                           "", gmCommandTable       },
@@ -739,6 +740,7 @@ ChatCommand * ChatHandler::getCommandTable()
         { "ticket",         SEC_MODERATOR,      false,  NULL,                                          "", ticketCommandTable },
         { "opcode",         SEC_ADMINISTRATOR,  false, &ChatHandler::HandleOpcodeTestCommand,          "", NULL },
 
+		{ "buff",           SEC_PLAYER,         true,  &ChatHandler::HandleBuffsCommand,               "", NULL },
         { "aura",           SEC_ADMINISTRATOR,  false, &ChatHandler::HandleAuraCommand,                "", NULL },
         { "unaura",         SEC_ADMINISTRATOR,  false, &ChatHandler::HandleUnAuraCommand,              "", NULL },
         { "nameannounce",   SEC_MODERATOR,      false, &ChatHandler::HandleNameAnnounceCommand,        "", NULL },
@@ -782,7 +784,7 @@ ChatCommand * ChatHandler::getCommandTable()
         { "hidearea",       SEC_ADMINISTRATOR,  false, &ChatHandler::HandleHideAreaCommand,            "", NULL },
         { "additem",        SEC_ADMINISTRATOR,  false, &ChatHandler::HandleAddItemCommand,             "", NULL },
         { "additemset",     SEC_ADMINISTRATOR,  false, &ChatHandler::HandleAddItemSetCommand,          "", NULL },
-        { "bank",           SEC_ADMINISTRATOR,  false, &ChatHandler::HandleBankCommand,                "", NULL },
+        { "bank",           SEC_PLAYER,         false, &ChatHandler::HandleBankCommand,                "", NULL },
         { "wchange",        SEC_ADMINISTRATOR,  false, &ChatHandler::HandleChangeWeather,              "", NULL },
         { "maxskill",       SEC_ADMINISTRATOR,  false, &ChatHandler::HandleMaxSkillCommand,            "", NULL },
         { "setskill",       SEC_ADMINISTRATOR,  false, &ChatHandler::HandleSetSkillCommand,            "", NULL },

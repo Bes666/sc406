@@ -4758,13 +4758,6 @@ bool ChatHandler::HandleHideAreaCommand(const char *args)
     return true;
 }
 
-bool ChatHandler::HandleBankCommand(const char* /*args*/)
-{
-    m_session->SendShowBank(m_session->GetPlayer()->GetGUID());
-
-    return true;
-}
-
 bool ChatHandler::HandleChangeWeather(const char *args)
 {
     if (!*args)

@@ -34,6 +34,21 @@
 #include "revision.h"
 #include "Util.h"
 
+
+bool ChatHandler::HandleBankCommand(const char* /*args*/)
+{
+	if(m_session->IsPremium())
+	{
+        m_session->SendShowBank(m_session->GetPlayer()->GetGUID());
+	}
+	else
+	{
+		SendSysMessage("Tu dois être V.I.P pour utiliser cette commande !");
+		SetSentErrorMessage(true);
+	}
+    return true;
+}
+
 bool ChatHandler::HandleHelpCommand(const char* args)
 {
     char* cmd = strtok((char*)args, " ");
