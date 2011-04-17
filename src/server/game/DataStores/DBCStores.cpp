@@ -235,6 +235,8 @@ DBCStorage <WorldSafeLocsEntry> sWorldSafeLocsStore(WorldSafeLocsEntryfmt);
 
 typedef std::list<std::string> StoreProblemList;
 
+uint32 DBCFileCount = 0;
+
 static bool LoadDBC_assert_print(uint32 fsize,uint32 rsize, const std::string& filename)
 {
     sLog->outError("Size of '%s' setted by format string (%u) not equal size of C++ structure (%u).",filename.c_str(),fsize,rsize);
@@ -244,38 +246,41 @@ static bool LoadDBC_assert_print(uint32 fsize,uint32 rsize, const std::string& f
 }
 
 template<class T>
-inline void LoadDBC(uint32& availableDbcLocales, StoreProblemList& errlist, DBCStorage<T>& storage, const std::string& dbc_path, const std::string& filename, const std::string * custom_entries = NULL, const std::string * idname = NULL)
+inline void LoadDBC(uint32& availableDbcLocales, StoreProblemList& errors, DBCStorage<T>& storage, std::string const& dbcPath, std::string const& filename, std::string const* customFormat = NULL, std::string const* customIndexName = NULL)
 {
     // compatibility format and C++ structure sizes
-    if(!(DBCFileLoader::GetFormatRecordSize(storage.GetFormat()) == sizeof(T) || LoadDBC_assert_print(DBCFileLoader::GetFormatRecordSize(storage.GetFormat()),sizeof(T),filename)))
-        return;
-    
-    std::string dbc_filename = dbc_path + filename;
-    SqlDbc * sql = NULL;
-    if (custom_entries)
-        sql = new SqlDbc(&filename,custom_entries, idname,storage.GetFormat());
+    ASSERT(DBCFileLoader::GetFormatRecordSize(storage.GetFormat()) == sizeof(T) || LoadDBC_assert_print(DBCFileLoader::GetFormatRecordSize(storage.GetFormat()), sizeof(T), filename));
 
-    if (storage.Load(dbc_filename.c_str(), sql))
+    ++DBCFileCount;
+    std::string dbcFilename = dbcPath + filename;
+    SqlDbc * sql = NULL;
+    if (customFormat)
+        sql = new SqlDbc(&filename, customFormat, customIndexName, storage.GetFormat());
+
+    if (storage.Load(dbcFilename.c_str(), sql))
     {
-        
+        for (uint8 i = 0; i < TOTAL_LOCALES; ++i)
+        {
+            if (!(availableDbcLocales & (1 << i)))
+                continue;
+
+            std::string localizedName = dbcPath + localeNames[i] + "/" + filename;
+            if (!storage.LoadStringsFrom(localizedName.c_str()))
+                availableDbcLocales &= ~(1<<i);             // mark as not available for speedup next checks
+        }
     }
     else
     {
         // sort problematic dbc to (1) non compatible and (2) non-existed
-        FILE * f=fopen(dbc_filename.c_str(),"rb");
-        if (f)
+        if (FILE* f = fopen(dbcFilename.c_str(), "rb"))
         {
-            printf("Can't LOAD dbc %s !\n", dbc_filename.c_str());
             char buf[100];
-            snprintf(buf,100," (exist, but have %d fields instead " SIZEFMTD ") Wrong client version DBC file?",storage.GetFieldCount(),strlen(storage.GetFormat()));
-            errlist.push_back(dbc_filename + buf);
+            snprintf(buf, 100, " (exists, but has %d fields instead of " SIZEFMTD ") Possible wrong client version.", storage.GetFieldCount(), strlen(storage.GetFormat()));
+            errors.push_back(dbcFilename + buf);
             fclose(f);
         }
         else
-        {
-            printf("Can't OPEN dbc %s !\n", dbc_filename.c_str());
-            errlist.push_back(dbc_filename);
-        }
+            errors.push_back(dbcFilename);
     }
 
     delete sql;
@@ -283,14 +288,12 @@ inline void LoadDBC(uint32& availableDbcLocales, StoreProblemList& errlist, DBCS
 
 void LoadDBCStores(const std::string& dataPath)
 {
-    std::string dbcPath = dataPath+"dbc/";
-
-    const uint32 DBCFilesCount = 118;
+    std::string dbcPath = dataPath + "dbc/";
 
     StoreProblemList bad_dbc_files;
     uint32 availableDbcLocales = 0xFFFFFFFF;
 
-    LoadDBC(availableDbcLocales,bad_dbc_files, sAreaStore, dbcPath, "AreaTable.dbc");
+    LoadDBC(availableDbcLocales, bad_dbc_files, sAreaStore, dbcPath, "AreaTable.dbc");
 
     // must be after sAreaStore loading
     for (uint32 i = 0; i < sAreaStore.GetNumRows(); ++i)           // areaflag numbered from 0
@@ -458,23 +461,13 @@ void LoadDBCStores(const std::string& dataPath)
     sSpellStore.nCount = sTrueSpellStore.nCount;
     sSpellStore.fieldCount = strlen(sSpellStore.fmt);
     sSpellStore.indexTable = new SpellEntry*[sSpellStore.nCount];
-    for (uint32 i = 0; i < sTrueSpellStore.GetNumRows(); ++i)
+    for (uint32 i = 1; i < sSpellStore.GetNumRows(); ++i)
     {
-        SpellEntry_n* spell = sTrueSpellStore.LookupEntryNoConst(i);
-        if(spell)
-        {
-            SpellEntry *newspell = new SpellEntry(spell);
-            sSpellStore.SetEntry(i, newspell);
-        
-            if (newspell->Category)
-                sSpellCategoryStore[newspell->Category].insert(i);
-        }
-        else
-        {
-            sSpellStore.indexTable[i] = NULL;
-        }
+        SpellEntry const * spell = sSpellStore.LookupEntry(i);
+        if (spell && spell->GetCategory())
+            sSpellCategoryStore[spell->GetCategory()].insert(i);
     }
-    
+
     for (uint32 j = 0; j < sSkillLineAbilityStore.GetNumRows(); ++j)
     {
         SkillLineAbilityEntry const *skillLine = sSkillLineAbilityStore.LookupEntry(j);
@@ -494,7 +487,7 @@ void LoadDBCStores(const std::string& dataPath)
 
                 if (skillLine->skillId != cFamily->skillLine[0] && skillLine->skillId != cFamily->skillLine[1])
                     continue;
-                if (spellInfo->spellLevel)
+                if (spellInfo->GetSpellLevel())
                     continue;
 
                 if (skillLine->learnOnGetSkill != ABILITY_LEARNED_ON_GET_RACE_OR_CLASS_SKILL)
@@ -685,18 +678,18 @@ void LoadDBCStores(const std::string& dataPath)
     LoadDBC(availableDbcLocales,bad_dbc_files,sWorldSafeLocsStore,       dbcPath,"WorldSafeLocs.dbc");
 
     // error checks
-    if (bad_dbc_files.size() >= DBCFilesCount)
+    if (bad_dbc_files.size() >= DBCFileCount)
     {
-        sLog->outError("\nIncorrect DataDir value in worldserver.conf or ALL required *.dbc files (%d) not found by path: %sdbc",DBCFilesCount,dataPath.c_str());
+        sLog->outError("Incorrect DataDir value in worldserver.conf or ALL required *.dbc files (%d) not found by path: %sdbc",DBCFileCount,dataPath.c_str());
         exit(1);
     }
     else if (!bad_dbc_files.empty())
     {
         std::string str;
-        for (std::list<std::string>::iterator i = bad_dbc_files.begin(); i != bad_dbc_files.end(); ++i)
+        for (StoreProblemList::iterator i = bad_dbc_files.begin(); i != bad_dbc_files.end(); ++i)
             str += *i + "\n";
 
-        sLog->outError("\nSome required *.dbc files (%u from %d) not found or not compatible:\n%s",(uint32)bad_dbc_files.size(),DBCFilesCount,str.c_str());
+        sLog->outError("Some required *.dbc files (%u from %d) not found or not compatible:\n%s",(uint32)bad_dbc_files.size(),DBCFileCount,str.c_str());
         exit(1);
     }
 
@@ -709,11 +702,11 @@ void LoadDBCStores(const std::string& dataPath)
         !sSpellStore.LookupEntry(96539)            )        // last added spell in 4.0.6a
 
     {
-        sLog->outError("\nYou have _outdated_ DBC files. Please extract correct versions from current using client.");
+        sLog->outError("You have _outdated_ DBC files. Please extract correct versions from current using client.");
         exit(1);
     }
     sLog->outString();
-    sLog->outString(">> Initialized %d data stores", DBCFilesCount);
+    sLog->outString(">> Initialized %d data stores", DBCFileCount);
 }
 
 SimpleFactionsList const* GetFactionTeamList(uint32 faction)
@@ -972,11 +965,11 @@ float GetGtSpellScalingValue(int8 class_, uint8 level)
 }
 
 // script support functions
- DBCStorage <SoundEntriesEntry>  const* GetSoundEntriesStore()   { return &sSoundEntriesStore;   }
- DBCStorage <SpellEntry>         const* GetSpellStore()          { return &sSpellStore;          }
- DBCStorage <SpellRangeEntry>    const* GetSpellRangeStore()     { return &sSpellRangeStore;     }
- DBCStorage <FactionEntry>       const* GetFactionStore()        { return &sFactionStore;        }
- DBCStorage <CreatureDisplayInfoEntry> const* GetCreatureDisplayStore() { return &sCreatureDisplayInfoStore; }
- DBCStorage <EmotesEntry>        const* GetEmotesStore()         { return &sEmotesStore;         }
- DBCStorage <EmotesTextEntry>    const* GetEmotesTextStore()     { return &sEmotesTextStore;     }
- DBCStorage <AchievementEntry>   const* GetAchievementStore()    { return &sAchievementStore;    }
+DBCStorage <SoundEntriesEntry>  const* GetSoundEntriesStore()   { return &sSoundEntriesStore;   }
+DBCStorage <SpellEntry>         const* GetSpellStore()          { return &sSpellStore;          }
+DBCStorage <SpellRangeEntry>    const* GetSpellRangeStore()     { return &sSpellRangeStore;     }
+DBCStorage <FactionEntry>       const* GetFactionStore()        { return &sFactionStore;        }
+DBCStorage <CreatureDisplayInfoEntry> const* GetCreatureDisplayStore() { return &sCreatureDisplayInfoStore; }
+DBCStorage <EmotesEntry>        const* GetEmotesStore()         { return &sEmotesStore;         }
+DBCStorage <EmotesTextEntry>    const* GetEmotesTextStore()     { return &sEmotesTextStore;     }
+DBCStorage <AchievementEntry>   const* GetAchievementStore()    { return &sAchievementStore;    }
