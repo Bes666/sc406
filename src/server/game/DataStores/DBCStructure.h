@@ -1581,11 +1581,12 @@ struct SpellCategoriesEntry
 // SpellClassOptions.dbc
 struct SpellClassOptionsEntry
 {
-    uint32    Id;                                           // 0        m_ID
-    //uint32    modalNextSpell;                             // 1        m_modalNextSpell not used
-    flag96    SpellFamilyFlags;                             // 2-4
-    uint32    SpellFamilyName;                              // 5      m_spellClassSet
-    //DBCString Description;                                // 6 4.0.0
+    uint32    Id;                                           // 0         m_ID
+    //uint32  modalNextSpell;                               // 1         m_modalNextSpell not used
+    uint64    SpellFamilyFlags;                             // 2 - 3     m_spellClassMask
+    uint32    SpellFamilyFlags2;                            // 4         addition to m_spellClassMask
+    uint32    SpellFamilyName;                              // 5         m_spellClassSet
+    //DBCString Description;                                // 6         4.0.0
 };
 
 // SpellCooldowns.dbc

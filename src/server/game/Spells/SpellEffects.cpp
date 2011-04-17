@@ -273,8 +273,8 @@ void Spell::EffectResurrectNew(SpellEffectEntry const* effect)
         return;
 
     uint32 health = damage;
-    uint32 mana = m_spellInfo->EffectMiscValue[effIndex];
-    ExecuteLogEffectResurrect(effIndex, pTarget);
+    uint32 mana = effect->EffectMiscValue;
+    ExecuteLogEffectResurrect(effect->EffectIndex, pTarget);
     pTarget->setResurrectRequestData(m_caster->GetGUID(), m_caster->GetMapId(), m_caster->GetPositionX(), m_caster->GetPositionY(), m_caster->GetPositionZ(), health, mana);
     SendResurrectRequest(pTarget);
 }
@@ -324,7 +324,7 @@ void Spell::EffectEnvirinmentalDMG(SpellEffectEntry const* effect)
     // Note: this hack with damage replace required until GO casting not implemented
     // environment damage spells already have around enemies targeting but this not help in case not existed GO casting support
     // currently each enemy selected explicitly and self cast damage, we prevent apply self casted spell bonuses/etc
-    damage = SpellMgr::CalculateSpellEffectAmount(m_spellInfo, effIndex, m_caster);
+    damage = SpellMgr::CalculateSpellEffectAmount(m_spellInfo, effect->EffectIndex, m_caster);
 
     m_caster->CalcAbsorbResist(m_caster, GetSpellSchoolMask(m_spellInfo), SPELL_DIRECT_DAMAGE, damage, &absorb, &resist, m_spellInfo);
 
@@ -339,11 +339,15 @@ void Spell::EffectSchoolDMG(SpellEffectEntry const* /*effect*/)
 
 void Spell::SpellDamageSchoolDmg(SpellEffectEntry const* effect)
 {
+    SpellClassOptionsEntry const* flags = m_spellInfo->GetSpellClassOptions();
+    if (!flags)
+        return;
+
     bool apply_direct_bonus = true;
 
     if (unitTarget && unitTarget->isAlive())
     {
-        switch (m_spellInfo->SpellFamilyName)
+        switch (m_spellInfo->GetSpellFamilyName())
         {
             case SPELLFAMILY_GENERIC:
             {
@@ -352,7 +356,7 @@ void Spell::SpellDamageSchoolDmg(SpellEffectEntry const* effect)
                 {
                     uint32 count = 0;
                     for (std::list<TargetInfo>::iterator ihit= m_UniqueTargetInfo.begin(); ihit != m_UniqueTargetInfo.end(); ++ihit)
-                        if (ihit->effectMask & (1<<effIndex))
+                        if (ihit->effectMask & (1 << effect->EffectIndex))
                             ++count;
 
                     damage /= count;                    // divide to all targets
@@ -420,7 +424,7 @@ void Spell::SpellDamageSchoolDmg(SpellEffectEntry const* effect)
                         if (unitTarget->GetGUID() == m_caster->GetGUID() || unitTarget->GetTypeId() != TYPEID_PLAYER)
                             return;
 
-                        float radius = GetSpellRadiusForHostile(sSpellRadiusStore.LookupEntry(m_spellInfo->EffectRadiusIndex[0]));
+                        float radius = GetSpellRadiusForHostile(sSpellRadiusStore.LookupEntry(effect->EffectRadiusIndex));
                         if (!radius) return;
                         float distance = m_caster->GetDistance2d(unitTarget);
                         damage = (distance > radius) ? 0 : int32(SpellMgr::CalculateSpellEffectAmount(m_spellInfo, 0) * ((radius - distance)/radius));
@@ -461,7 +465,7 @@ void Spell::SpellDamageSchoolDmg(SpellEffectEntry const* effect)
                         if(unitTarget->GetGUID() == m_caster->GetGUID() || unitTarget->GetTypeId() != TYPEID_PLAYER)
                             return;
 
-                        float radius = GetSpellRadiusForHostile(sSpellRadiusStore.LookupEntry(m_spellInfo->EffectRadiusIndex[0]));
+                        float radius = GetSpellRadiusForHostile(sSpellRadiusStore.LookupEntry(effect->EffectRadiusIndex));
                         if (!radius)
                             return;
                         float distance = m_caster->GetDistance2d(unitTarget);
@@ -474,10 +478,10 @@ void Spell::SpellDamageSchoolDmg(SpellEffectEntry const* effect)
             case SPELLFAMILY_WARRIOR:
             {
                 // Bloodthirst
-                if (m_spellInfo->SpellFamilyFlags[1] & 0x400)
+                if (flags->SpellFamilyFlags & 0x400)
                     damage = uint32(damage * (m_caster->GetTotalAttackPowerValue(BASE_ATTACK)) / 100);
                 // Victory Rush
-                else if (m_spellInfo->SpellFamilyFlags[1] & 0x100)
+                else if (flags->SpellFamilyFlags & 0x100)
                 {
                     damage = uint32(damage * m_caster->GetTotalAttackPowerValue(BASE_ATTACK) / 100);
                     m_caster->ModifyAuraState(AURA_STATE_WARRIOR_VICTORY_RUSH, false);
@@ -500,7 +504,7 @@ void Spell::SpellDamageSchoolDmg(SpellEffectEntry const* effect)
             case SPELLFAMILY_WARLOCK:
             {
                 // Incinerate Rank 1 & 2
-                if ((m_spellInfo->SpellFamilyFlags[1] & 0x000040) && m_spellInfo->SpellIconID == 2128)
+                if ((flags->SpellFamilyFlags & 0x000040) && m_spellInfo->SpellIconID == 2128)
                 {
                     // Incinerate does more dmg (dmg*0.25) if the target have Immolate debuff.
                     // Check aura state for speed but aura state set not only for Immolate spell
@@ -511,20 +515,24 @@ void Spell::SpellDamageSchoolDmg(SpellEffectEntry const* effect)
                     }
                 }
                 // Conflagrate
-                else if (m_spellInfo->TargetAuraState == AURA_STATE_CONFLAGRATE)
+                else if (m_spellInfo->GetTargetAuraState() == AURA_STATE_CONFLAGRATE)
                 {
                     AuraEffect const* aura = NULL;                // found req. aura for damage calculation
 
                     Unit::AuraEffectList const &mPeriodic = unitTarget->GetAuraEffectsByType(SPELL_AURA_PERIODIC_DAMAGE);
                     for (Unit::AuraEffectList::const_iterator i = mPeriodic.begin(); i != mPeriodic.end(); ++i)
                     {
+                        SpellClassOptionsEntry const* flags = (*i)->GetSpellProto()->GetSpellClassOptions();
+                        if (!flags)
+                            return;
+
                         // for caster applied auras only
-                        if ((*i)->GetSpellProto()->SpellFamilyName != SPELLFAMILY_WARLOCK ||
+                        if ((*i)->GetSpellProto()->GetSpellFamilyName() != SPELLFAMILY_WARLOCK ||
                             (*i)->GetCasterGUID() != m_caster->GetGUID())
                             continue;
 
                         // Immolate
-                        if ((*i)->GetSpellProto()->SpellFamilyFlags[0] & 0x4)
+                        if (flags->SpellFamilyFlags & 0x4)
                         {
                             aura = *i;                      // it selected always if exist
                             break;
@@ -548,7 +556,7 @@ void Spell::SpellDamageSchoolDmg(SpellEffectEntry const* effect)
                     }
                 }
                 // Shadow Bite
-                else if (m_spellInfo->SpellFamilyFlags[1] & 0x400000)
+                else if (flags->SpellFamilyFlags & 0x400000)
                 {
                     if (m_caster->GetTypeId() == TYPEID_UNIT && m_caster->ToCreature()->isPet())
                    {
@@ -570,7 +578,7 @@ void Spell::SpellDamageSchoolDmg(SpellEffectEntry const* effect)
             case SPELLFAMILY_PRIEST:
             {
                 // Shadow Word: Death - deals damage equal to damage done to caster
-                if ((m_spellInfo->SpellFamilyFlags[1] & 0x2))
+                if ((flags->SpellFamilyFlags & 0x2))
                 {
                     int32 back_damage = m_caster->SpellDamageBonus(unitTarget, m_spellInfo, effIndex, (uint32)damage, SPELL_DIRECT_DAMAGE);
                     // Pain and Suffering reduces damage
@@ -581,7 +589,7 @@ void Spell::SpellDamageSchoolDmg(SpellEffectEntry const* effect)
                         m_caster->CastCustomSpell(m_caster, 32409, &back_damage, 0, 0, true);
                 }
                 // Mind Blast - applies Mind Trauma if:
-                else if (m_spellInfo->SpellFamilyFlags[2] & 0x00002000)
+                else if (flags->SpellFamilyFlags2 & 0x00002000)
                 {
                     // We are in Shadow Form
                     if (m_caster->GetShapeshiftForm() == FORM_SHADOW)
