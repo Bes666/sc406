@@ -89,7 +89,7 @@ class SOAPCommand
         {
             if (sem_init(&pendingCommandsSemaphore, 0, 0) == -1)
             {
-                sLog.outError("TCSoap: Error while initializing semaphore, errno = %u", errno);
+                sLog->outError("TCSoap: Error while initializing semaphore, errno = %u", errno);
             }
         }
 
